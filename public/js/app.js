@@ -99,19 +99,15 @@
     showPage('chat-page');
     loadConversations();
 
-    // 移动端键盘适配
     if (window.visualViewport) {
       visualViewport.addEventListener('resize', onViewportResize);
     }
     function onViewportResize() {
       $('#chat-page').style.height = visualViewport.height + 'px';
-      requestAnimationFrame(() => {
-        scrollToBottom();
-      });
+      requestAnimationFrame(() => scrollToBottom());
     }
   }
 
-  // 侧边栏管理
   function openSidebar() {
     $('#sidebar').classList.add('open');
     const overlay = $('#sidebar-overlay');
@@ -124,7 +120,6 @@
     if (overlay) overlay.classList.remove('open');
   }
 
-  // 创建遮罩层（如果不存在）
   if (!$('#sidebar-overlay')) {
     const overlay = document.createElement('div');
     overlay.id = 'sidebar-overlay';
@@ -132,12 +127,9 @@
     document.getElementById('chat-page').appendChild(overlay);
   }
 
-  // 绑定汉堡菜单按钮
   function bindSidebarToggle() {
     const toggleBtn = $('#sidebar-toggle');
-    if (toggleBtn) {
-      toggleBtn.addEventListener('click', openSidebar);
-    }
+    if (toggleBtn) toggleBtn.addEventListener('click', openSidebar);
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindSidebarToggle);
@@ -145,7 +137,6 @@
     bindSidebarToggle();
   }
 
-  // Conversations
   async function loadConversations() {
     try {
       const data = await api('/chat/conversations');
@@ -306,13 +297,16 @@
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText = '';
+      // ***** 客户端 buffer 防跨 chunk 断行 *****
+      let buffer = '';
       contentDiv.innerHTML = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
         for (const line of lines) {
           if (line.startsWith('data: ') && !line.includes('[DONE]')) {
             try {
@@ -329,9 +323,7 @@
       contentDiv.innerHTML = `<span style="color: var(--error);">错误: ${escapeHtml(err.message)}</span>`;
     } finally {
       sendBtn.disabled = false;
-      if (window.innerWidth > 768) {
-        input.focus();
-      }
+      if (window.innerWidth > 768) input.focus();
     }
   }
 
@@ -368,7 +360,7 @@
     }
   });
 
-  // ---- 记忆管理面板 ----
+  // 记忆管理
   function openMemoryPanel() {
     api('/chat/memory').then(data => {
       $('#memory-textarea').value = data.memory || '';
@@ -378,19 +370,13 @@
     $('#memory-modal').classList.remove('hidden');
   }
 
-  // 记忆按钮绑定（现在 HTML 中已经存在）
   const memBtn = $('#memory-btn');
-  if (memBtn) {
-    memBtn.addEventListener('click', openMemoryPanel);
-  }
+  if (memBtn) memBtn.addEventListener('click', openMemoryPanel);
 
   $('#save-memory-btn').addEventListener('click', async () => {
     const memory = $('#memory-textarea').value;
     try {
-      await api('/chat/memory', {
-        method: 'PUT',
-        body: JSON.stringify({ memory })
-      });
+      await api('/chat/memory', { method: 'PUT', body: JSON.stringify({ memory }) });
       alert('记忆已更新！');
       $('#memory-modal').classList.add('hidden');
     } catch (err) {
@@ -413,13 +399,8 @@
 
   $('#close-memory-btn').addEventListener('click', () => $('#memory-modal').classList.add('hidden'));
 
-  // Mobile sidebar toggle
   $('#sidebar-toggle').addEventListener('click', openSidebar);
 
-  // Init
-  if (token) {
-    enterChat();
-  } else {
-    showPage('auth-page');
-  }
+  if (token) enterChat();
+  else showPage('auth-page');
 })();

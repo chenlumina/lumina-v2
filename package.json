@@ -22,7 +22,6 @@
     "dotenv": "^17.4.2",
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.3",
-    "openai": "^6.35.0",
     "uuid": "^14.0.0"
   }
 }

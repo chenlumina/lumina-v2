@@ -32,12 +32,14 @@ function setMemory(userId, memory) {
   db.prepare('INSERT OR REPLACE INTO user_memory (user_id, memory) VALUES (?, ?)').run(userId, memory);
 }
 
-// 辅助函数：保存记忆命令的用户消息并更新标题
-function saveMemoryCommandMessage(conversationId, content) {
-  db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'user', content);
-  const isFirstMessage = db.prepare('SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?').get(conversationId).count === 1;
+function saveMemoryCommandMessage(conversationId, userContent, assistantContent) {
+  // 存用户命令
+  db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'user', userContent);
+  // 存 AI 确认回复
+  db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'assistant', assistantContent);
+  const isFirstMessage = db.prepare('SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?').get(conversationId).count <= 2;
   if (isFirstMessage) {
-    const title = content.length > 20 ? content.substring(0, 20) + '...' : content;
+    const title = userContent.length > 20 ? userContent.substring(0, 20) + '...' : userContent;
     db.prepare('UPDATE conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(title, conversationId);
   }
 }
@@ -90,42 +92,45 @@ router.post('/conversations/:id/messages', async (req, res) => {
   const conversation = db.prepare('SELECT * FROM conversations WHERE id = ? AND user_id = ?').get(id, req.userId);
   if (!conversation) return res.status(404).json({ error: '对话不存在' });
 
-  // ---- 记忆管理命令（走 SSE 美观回复）----
+  // 记忆命令处理（同时保存用户命令和 AI 回复）
   if (/^\/记忆\s/.test(content)) {
     const memory = content.replace(/^\/记忆\s*/, '').trim();
     setMemory(req.userId, memory);
-    saveMemoryCommandMessage(id, content);
+    const reply = '✅ 长期记忆已更新！';
+    saveMemoryCommandMessage(id, content, reply);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.write(`data: ${JSON.stringify({ content: '✅ 长期记忆已更新！' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ content: reply })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
   }
 
   if (content === '/查看记忆') {
     const mem = getMemory(req.userId);
-    saveMemoryCommandMessage(id, content);
+    const reply = mem ? '📝 当前记忆：' + mem : '暂无记忆';
+    saveMemoryCommandMessage(id, content, reply);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.write(`data: ${JSON.stringify({ content: mem ? '📝 当前记忆：' + mem : '暂无记忆' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ content: reply })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
   }
 
   if (content === '/清除记忆') {
     setMemory(req.userId, '');
-    saveMemoryCommandMessage(id, content);
+    const reply = '✅ 长期记忆已清除！';
+    saveMemoryCommandMessage(id, content, reply);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.write(`data: ${JSON.stringify({ content: '✅ 长期记忆已清除！' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ content: reply })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
   }
 
-  // ---- 正常对话 ----
+  // 正常对话
   const selectedModel = ALLOWED_MODELS.includes(model) ? model : 'deepseek-chat';
   const config = getAPIConfig(selectedModel);
   if (!config || !config.apiKey) {
@@ -223,6 +228,25 @@ router.post('/conversations/:id/messages', async (req, res) => {
   }
 });
 
+// 记忆管理 API（位于 module.exports 之前）
+router.get('/memory', (req, res) => {
+  const memory = getMemory(req.userId);
+  res.json({ memory });
+});
+
+router.put('/memory', (req, res) => {
+  const { memory } = req.body;
+  if (typeof memory !== 'string') return res.status(400).json({ error: '记忆内容不能为空' });
+  setMemory(req.userId, memory);
+  res.json({ message: '记忆已更新' });
+});
+
+router.delete('/memory', (req, res) => {
+  setMemory(req.userId, '');
+  res.json({ message: '记忆已清除' });
+});
+
+// 设置接口（同时支持 DeepSeek 和 MiMo）
 router.get('/settings', (req, res) => {
   res.json({
     apiKeyConfigured: !!(process.env.DEEPSEEK_API_KEY || process.env.MIMO_API_KEY),
@@ -231,31 +255,11 @@ router.get('/settings', (req, res) => {
 });
 
 router.put('/settings', (req, res) => {
-  const { apiKey, baseURL } = req.body;
-  if (apiKey !== undefined) process.env.DEEPSEEK_API_KEY = apiKey;
+  const { deepseekKey, mimoKey, baseURL } = req.body;
+  if (deepseekKey !== undefined) process.env.DEEPSEEK_API_KEY = deepseekKey;
+  if (mimoKey !== undefined) process.env.MIMO_API_KEY = mimoKey;
   if (baseURL !== undefined) process.env.DEEPSEEK_BASE_URL = baseURL;
   res.json({ message: '设置已更新（重启后失效，请修改.env文件持久化）' });
 });
 
 module.exports = router;
-
-// ---- 记忆管理 API ----
-// 获取当前用户的记忆
-router.get('/memory', (req, res) => {
-  const memory = getMemory(req.userId);
-  res.json({ memory });
-});
-
-// 更新当前用户的记忆
-router.put('/memory', (req, res) => {
-  const { memory } = req.body;
-  if (typeof memory !== 'string') return res.status(400).json({ error: '记忆内容不能为空' });
-  setMemory(req.userId, memory);
-  res.json({ message: '记忆已更新' });
-});
-
-// 清空当前用户的记忆
-router.delete('/memory', (req, res) => {
-  setMemory(req.userId, '');
-  res.json({ message: '记忆已清除' });
-});
