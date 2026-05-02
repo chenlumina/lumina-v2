@@ -5,6 +5,8 @@ const db = require('../db/init');
 const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret';
+const MAX_USERS = parseInt(process.env.MAX_USERS, 10) || 5;
+
 router.post('/register', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -16,6 +18,13 @@ router.post('/register', (req, res) => {
   if (password.length < 6) {
     return res.status(400).json({ error: '密码长度至少6个字符' });
   }
+
+  // 检查用户数是否已达上限
+  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+  if (userCount >= MAX_USERS) {
+    return res.status(403).json({ error: '注册人数已满，暂不开放新用户注册' });
+  }
+
   const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
   if (existing) {
     return res.status(409).json({ error: '用户名已存在' });
@@ -29,6 +38,7 @@ router.post('/register', (req, res) => {
     user: { id: result.lastInsertRowid, username }
   });
 });
+
 router.post('/login', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -49,6 +59,7 @@ router.post('/login', (req, res) => {
     user: { id: user.id, username: user.username }
   });
 });
+
 router.get('/me', authMiddleware, (req, res) => {
   const user = db.prepare('SELECT id, username, created_at FROM users WHERE id = ?').get(req.userId);
   if (!user) {
@@ -56,4 +67,5 @@ router.get('/me', authMiddleware, (req, res) => {
   }
   res.json({ user });
 });
+
 module.exports = router;
