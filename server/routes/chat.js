@@ -5,7 +5,13 @@ const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 router.use(authMiddleware);
 
-const ALLOWED_MODELS = ['deepseek-chat', 'deepseek-reasoner', 'deepseek-v4-pro', 'deepseek-v4-flash', 'mimo-v2-flash'];
+// 已通过 curl 获取此次新 MiMo API 支持的全部模型
+const ALLOWED_MODELS = [
+  'deepseek-chat', 'deepseek-reasoner',
+  'deepseek-v4-pro', 'deepseek-v4-flash',
+  'mimo-v2-omni', 'mimo-v2-pro',
+  'mimo-v2.5', 'mimo-v2.5-pro'
+];
 
 function getAPIConfig(model) {
   if (model.startsWith('deepseek-')) {
@@ -14,10 +20,11 @@ function getAPIConfig(model) {
       baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com'
     };
   }
+  // 所有 mimo- 模型都走 MiMo API
   if (model.startsWith('mimo-')) {
     return {
       apiKey: process.env.MIMO_API_KEY,
-      baseURL: process.env.MIMO_BASE_URL || 'https://api.xiaomimimo.com/v1'
+      baseURL: process.env.MIMO_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1'
     };
   }
   return null;
@@ -33,9 +40,7 @@ function setMemory(userId, memory) {
 }
 
 function saveMemoryCommandMessage(conversationId, userContent, assistantContent) {
-  // 存用户命令
   db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'user', userContent);
-  // 存 AI 确认回复
   db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'assistant', assistantContent);
   const isFirstMessage = db.prepare('SELECT COUNT(*) as count FROM messages WHERE conversation_id = ?').get(conversationId).count <= 2;
   if (isFirstMessage) {
@@ -92,7 +97,6 @@ router.post('/conversations/:id/messages', async (req, res) => {
   const conversation = db.prepare('SELECT * FROM conversations WHERE id = ? AND user_id = ?').get(id, req.userId);
   if (!conversation) return res.status(404).json({ error: '对话不存在' });
 
-  // 记忆命令处理（同时保存用户命令和 AI 回复）
   if (/^\/记忆\s/.test(content)) {
     const memory = content.replace(/^\/记忆\s*/, '').trim();
     setMemory(req.userId, memory);
@@ -176,7 +180,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
         const errBody = await fetchResp.json();
         errMsg = errBody.error?.message || errBody.message || errMsg;
       } catch {}
-      res.write(`data: ${JSON.stringify({ content: `❌ ${errMsg}` })}\n\n`);
+      res.write(`data: ${JSON.stringify({ content: '❌ ' + errMsg })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     }
@@ -228,7 +232,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
   }
 });
 
-// 记忆管理 API（位于 module.exports 之前）
+// 记忆 API
 router.get('/memory', (req, res) => {
   const memory = getMemory(req.userId);
   res.json({ memory });
@@ -246,7 +250,7 @@ router.delete('/memory', (req, res) => {
   res.json({ message: '记忆已清除' });
 });
 
-// 设置接口（同时支持 DeepSeek 和 MiMo）
+// 设置
 router.get('/settings', (req, res) => {
   res.json({
     apiKeyConfigured: !!(process.env.DEEPSEEK_API_KEY || process.env.MIMO_API_KEY),
