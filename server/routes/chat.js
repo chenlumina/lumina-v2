@@ -105,6 +105,10 @@ router.post('/conversations/:id/messages', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    // 客户端断开时中止请求
+    req.on('close', () => {
+      if (abortController) abortController.abort();
+    });
     res.write(`data: ${JSON.stringify({ content: reply })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
@@ -117,6 +121,10 @@ router.post('/conversations/:id/messages', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    // 客户端断开时中止请求
+    req.on('close', () => {
+      if (abortController) abortController.abort();
+    });
     res.write(`data: ${JSON.stringify({ content: reply })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
@@ -129,6 +137,10 @@ router.post('/conversations/:id/messages', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    // 客户端断开时中止请求
+    req.on('close', () => {
+      if (abortController) abortController.abort();
+    });
     res.write(`data: ${JSON.stringify({ content: reply })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
@@ -157,6 +169,10 @@ router.post('/conversations/:id/messages', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+    // 客户端断开时中止请求
+    req.on('close', () => {
+      if (abortController) abortController.abort();
+    });
 
   try {
     const fetchResp = await fetch(`${config.baseURL}/chat/completions`, {
@@ -264,6 +280,42 @@ router.put('/settings', (req, res) => {
   if (mimoKey !== undefined) process.env.MIMO_API_KEY = mimoKey;
   if (baseURL !== undefined) process.env.DEEPSEEK_BASE_URL = baseURL;
   res.json({ message: '设置已更新（重启后失效，请修改.env文件持久化）' });
+});
+
+// 导出对话为 Markdown
+
+router.get("/conversations/:id/export", (req, res) => {
+
+  const { id } = req.params;
+
+  const conversation = db.prepare("SELECT * FROM conversations WHERE id = ? AND user_id = ?").get(id, req.userId);
+
+  if (!conversation) return res.status(404).json({ error: "对话不存在" });
+
+  const messages = db.prepare("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC").all(id);
+
+  let md = `# ${conversation.title}\n\n`;
+
+  md += `> 导出时间：${new Date().toLocaleString("zh-CN")}\n\n---\n\n`;
+
+  messages.forEach(m => {
+
+    const role = m.role === "user" ? "我" : "AI";
+
+    md += `### ${role}\n\n`;
+
+    md += m.content + "\n\n";
+
+    md += `*${new Date(m.created_at).toLocaleString("zh-CN")}*\n\n---\n\n`;
+
+  });
+
+  res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+
+  res.setHeader("Content-Disposition", `attachment; filename="${conversation.title}.md"`);
+
+  res.send(md);
+
 });
 
 module.exports = router;
