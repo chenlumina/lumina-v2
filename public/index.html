@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -32,10 +32,7 @@
     </div>
     <div id="chat-page" class="page">
       <aside id="sidebar">
-        <div class="sidebar-header">
-          <h2>对话列表</h2>
-          <button id="new-chat-btn" title="新建对话">+ 新对话</button>
-        </div>
+        <div class="sidebar-header"><h2>对话列表</h2><button id="new-chat-btn">+ 新对话</button></div>
         <ul id="conversation-list"></ul>
         <div class="sidebar-footer">
           <button id="memory-btn">记忆管理</button>
@@ -46,18 +43,17 @@
         <div id="chat-header">
           <button id="sidebar-toggle" class="mobile-only">☰</button>
           <h3 id="chat-title">选择或创建一个对话</h3>
+          <button id="theme-toggle-btn" class="theme-toggle-btn">🌙 暗色</button>
         </div>
         <div id="messages-container">
-          <div id="welcome-screen">
-            <h2>欢迎使用 Lumina-v2</h2>
-            <p>选择左侧对话或创建新对话开始聊天</p>
-          </div>
+          <div id="welcome-screen"><h2>欢迎使用 Lumina-v2</h2><p>选择左侧对话或创建新对话开始聊天</p></div>
           <div id="messages"></div>
         </div>
         <div id="input-area" class="hidden">
           <div class="input-wrapper">
             <textarea id="message-input" placeholder="输入消息... (Enter发送，Shift+Enter换行)" rows="1"></textarea>
-            <button id="model-switch-btn" title="切换模型" class="icon-btn">⚙️</button>
+            <button id="stop-btn" class="stop-btn" title="停止生成">■</button>
+            <button id="model-switch-btn" class="icon-btn" title="切换模型">⚙️</button>
             <button id="send-btn" title="发送">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
@@ -66,37 +62,18 @@
           </div>
         </div>
       </main>
-      <!-- 模型切换弹窗 -->
       <div id="settings-modal" class="modal hidden">
         <div class="modal-content">
-          <div class="modal-header">
-            <h3>选择模型</h3>
-            <button class="close-btn">×</button>
-          </div>
-          <div class="modal-body">
-            <label>当前模型</label>
-            <select id="model-select"></select>
-            <p id="settings-status" class="settings-status"></p>
-          </div>
-          <div class="modal-footer">
-            <button id="save-settings-btn">保存</button>
-          </div>
+          <div class="modal-header"><h3>选择模型</h3><button class="close-btn">×</button></div>
+          <div class="modal-body"><label>当前模型</label><select id="model-select"></select><p id="settings-status" class="settings-status"></p></div>
+          <div class="modal-footer"><button id="save-settings-btn">保存</button></div>
         </div>
       </div>
-      <!-- 记忆管理弹窗 -->
       <div id="memory-modal" class="modal hidden">
         <div class="modal-content">
-          <div class="modal-header">
-            <h3>长期记忆管理</h3>
-            <button class="close-btn" id="close-memory-btn">×</button>
-          </div>
-          <div class="modal-body">
-            <textarea id="memory-textarea" placeholder="输入你的长期偏好，AI 将永久记住..."></textarea>
-          </div>
-          <div class="modal-footer" style="display:flex; gap:10px; justify-content:flex-end;">
-            <button id="clear-memory-btn" style="background: var(--error);">清除记忆</button>
-            <button id="save-memory-btn">保存记忆</button>
-          </div>
+          <div class="modal-header"><h3>长期记忆管理</h3><button class="close-btn" id="close-memory-btn">×</button></div>
+          <div class="modal-body"><textarea id="memory-textarea" placeholder="输入你的长期偏好，AI 将永久记住..."></textarea></div>
+          <div class="modal-footer"><button id="clear-memory-btn" style="background: var(--error);">清除记忆</button><button id="save-memory-btn">保存记忆</button></div>
         </div>
       </div>
     </div>
