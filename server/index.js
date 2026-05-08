@@ -13,7 +13,6 @@ const path = require('path');
 const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
-const ttsRoutes = require('./routes/tts');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -36,7 +35,6 @@ app.use('/api/auth/', authLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
-app.use('/api/tts', ttsRoutes);
 
 // SPA 路由兜底
 app.get('*', (req, res) => {
