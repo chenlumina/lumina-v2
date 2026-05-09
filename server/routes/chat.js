@@ -186,6 +186,8 @@ router.post('/conversations/:id/messages', async (req, res) => {
         messages: history.map(m => ({ role: m.role, content: m.content })),
         temperature: 0.7,
         max_tokens: 2000,
+        stream: true,
+        stream: true,
         stream: true
       })
     });
