@@ -19,7 +19,7 @@ const PORT = process.env.PORT || 3000;
 // gzip 压缩
 app.use(compression());
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // 全局速率限制

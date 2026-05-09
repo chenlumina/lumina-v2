@@ -385,19 +385,6 @@
   }
 
   // TTS（浏览器语音）
-  let audioContext = null;
-  function getAudioContext() { if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext()); return audioContext; }
-  document.getElementById('messages').addEventListener('click', async (e) => {
-    const btn = e.target.closest('.tts-btn'); if (!btn) return;
-    const text = btn.dataset.text; if (!text || btn.dataset.playing === 'true') return;
-    btn.dataset.playing = 'true'; btn.textContent = '⏳';
-    try {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN';
-      utterance.onend = () => { btn.dataset.playing = 'false'; btn.textContent = '🔊'; };
-      window.speechSynthesis.speak(utterance);
-    } catch (err) { btn.dataset.playing = 'false'; btn.textContent = '🔊'; }
-  });
 
   // 模型切换
   $('#model-switch-btn').addEventListener('click', async () => {

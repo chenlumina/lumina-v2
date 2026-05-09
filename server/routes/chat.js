@@ -5,7 +5,6 @@ const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 router.use(authMiddleware);
 
-// 已通过 curl 获取此次新 MiMo API 支持的全部模型
 const ALLOWED_MODELS = [
   'deepseek-chat', 'deepseek-reasoner',
   'deepseek-v4-pro', 'deepseek-v4-flash',
@@ -20,7 +19,6 @@ function getAPIConfig(model) {
       baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com'
     };
   }
-  // 所有 mimo- 模型都走 MiMo API
   if (model.startsWith('mimo-')) {
     return {
       apiKey: process.env.MIMO_API_KEY,
@@ -50,9 +48,7 @@ function saveMemoryCommandMessage(conversationId, userContent, assistantContent)
 }
 
 router.get('/conversations', (req, res) => {
-  const conversations = db.prepare(
-    'SELECT * FROM conversations WHERE user_id = ? ORDER BY updated_at DESC'
-  ).all(req.userId);
+  const conversations = db.prepare('SELECT * FROM conversations WHERE user_id = ? ORDER BY updated_at DESC').all(req.userId);
   res.json({ conversations });
 });
 
@@ -97,6 +93,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
   const conversation = db.prepare('SELECT * FROM conversations WHERE id = ? AND user_id = ?').get(id, req.userId);
   if (!conversation) return res.status(404).json({ error: '对话不存在' });
 
+  // ---- 记忆命令（无需 abortController，直接返回）----
   if (/^\/记忆\s/.test(content)) {
     const memory = content.replace(/^\/记忆\s*/, '').trim();
     setMemory(req.userId, memory);
@@ -105,10 +102,6 @@ router.post('/conversations/:id/messages', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    // 客户端断开时中止请求
-    req.on('close', () => {
-      if (abortController) abortController.abort();
-    });
     res.write(`data: ${JSON.stringify({ content: reply })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
@@ -121,10 +114,6 @@ router.post('/conversations/:id/messages', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    // 客户端断开时中止请求
-    req.on('close', () => {
-      if (abortController) abortController.abort();
-    });
     res.write(`data: ${JSON.stringify({ content: reply })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
@@ -137,16 +126,12 @@ router.post('/conversations/:id/messages', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    // 客户端断开时中止请求
-    req.on('close', () => {
-      if (abortController) abortController.abort();
-    });
     res.write(`data: ${JSON.stringify({ content: reply })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
   }
 
-  // 正常对话
+  // ---- 正常流式对话 ----
   const selectedModel = ALLOWED_MODELS.includes(model) ? model : 'deepseek-chat';
   const config = getAPIConfig(selectedModel);
   if (!config || !config.apiKey) {
@@ -169,10 +154,9 @@ router.post('/conversations/:id/messages', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-    // 客户端断开时中止请求
-    req.on('close', () => {
-      if (abortController) abortController.abort();
-    });
+
+  const abortController = new AbortController();
+  req.on('close', () => abortController.abort());
 
   try {
     const fetchResp = await fetch(`${config.baseURL}/chat/completions`, {
@@ -186,10 +170,9 @@ router.post('/conversations/:id/messages', async (req, res) => {
         messages: history.map(m => ({ role: m.role, content: m.content })),
         temperature: 0.7,
         max_tokens: 2000,
-        stream: true,
-        stream: true,
         stream: true
-      })
+      }),
+      signal: abortController.signal
     });
 
     if (!fetchResp.ok) {
@@ -230,6 +213,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
             if (delta) {
               fullReply += delta;
               res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
+              if (res.flush) res.flush();
             }
           } catch (e) {}
         }
@@ -243,14 +227,16 @@ router.post('/conversations/:id/messages', async (req, res) => {
       res.end();
     }
   } catch (error) {
-    console.error('API Error:', error.message);
-    res.write(`data: ${JSON.stringify({ content: '❌ 网络或服务异常，请稍后重试' })}\n\n`);
-    res.write('data: [DONE]\n\n');
+    if (error.name !== 'AbortError') {
+      console.error('API Error:', error.message);
+      res.write(`data: ${JSON.stringify({ content: '❌ 网络或服务异常，请稍后重试' })}\n\n`);
+      res.write('data: [DONE]\n\n');
+    }
     res.end();
   }
 });
 
-// 记忆 API
+// 记忆管理 API
 router.get('/memory', (req, res) => {
   const memory = getMemory(req.userId);
   res.json({ memory });
@@ -268,56 +254,30 @@ router.delete('/memory', (req, res) => {
   res.json({ message: '记忆已清除' });
 });
 
-// 设置
+// 导出对话为 Markdown（安全处理文件名）
+router.get('/conversations/:id/export', (req, res) => {
+  const { id } = req.params;
+  const conversation = db.prepare('SELECT * FROM conversations WHERE id = ? AND user_id = ?').get(id, req.userId);
+  if (!conversation) return res.status(404).json({ error: '对话不存在' });
+  const messages = db.prepare('SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC').all(id);
+  let md = `# ${conversation.title}\n\n`;
+  md += `> 导出时间：${new Date().toLocaleString('zh-CN')}\n\n---\n\n`;
+  messages.forEach(m => {
+    const role = m.role === 'user' ? '我' : 'AI';
+    md += `### ${role}\n\n${m.content}\n\n*${new Date(m.created_at).toLocaleString('zh-CN')}*\n\n---\n\n`;
+  });
+  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+  const safeName = conversation.title.replace(/[\\/:*?"<>|\n\r]/g, '_').substring(0, 100) || '对话';
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(safeName)}.md"`);
+  res.send(md);
+});
+
+// 设置接口（仅保留 GET，移除危险的 PUT）
 router.get('/settings', (req, res) => {
   res.json({
     apiKeyConfigured: !!(process.env.DEEPSEEK_API_KEY || process.env.MIMO_API_KEY),
     availableModels: ALLOWED_MODELS,
   });
-});
-
-router.put('/settings', (req, res) => {
-  const { deepseekKey, mimoKey, baseURL } = req.body;
-  if (deepseekKey !== undefined) process.env.DEEPSEEK_API_KEY = deepseekKey;
-  if (mimoKey !== undefined) process.env.MIMO_API_KEY = mimoKey;
-  if (baseURL !== undefined) process.env.DEEPSEEK_BASE_URL = baseURL;
-  res.json({ message: '设置已更新（重启后失效，请修改.env文件持久化）' });
-});
-
-// 导出对话为 Markdown
-
-router.get("/conversations/:id/export", (req, res) => {
-
-  const { id } = req.params;
-
-  const conversation = db.prepare("SELECT * FROM conversations WHERE id = ? AND user_id = ?").get(id, req.userId);
-
-  if (!conversation) return res.status(404).json({ error: "对话不存在" });
-
-  const messages = db.prepare("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC").all(id);
-
-  let md = `# ${conversation.title}\n\n`;
-
-  md += `> 导出时间：${new Date().toLocaleString("zh-CN")}\n\n---\n\n`;
-
-  messages.forEach(m => {
-
-    const role = m.role === "user" ? "我" : "AI";
-
-    md += `### ${role}\n\n`;
-
-    md += m.content + "\n\n";
-
-    md += `*${new Date(m.created_at).toLocaleString("zh-CN")}*\n\n---\n\n`;
-
-  });
-
-  res.setHeader("Content-Type", "text/markdown; charset=utf-8");
-
-  res.setHeader("Content-Disposition", `attachment; filename="${conversation.title}.md"`);
-
-  res.send(md);
-
 });
 
 module.exports = router;
